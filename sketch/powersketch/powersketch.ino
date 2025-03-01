@@ -65,6 +65,7 @@ byte GBlinkRate = 50;                       // on/off periods in 10ms units
 #define VARMACTIVEPIN 0                     // input from ARM signalling it is active
 #define VARMSHUTDOWNPIN 2                   // open collector output to ARM requesting shutdown
 #define VPWRONPIN 4                         // active high output to hold on the +12v switch
+#define VARMCONFIGPIN 5                     // UPDI used as input
 
 
 //
@@ -95,12 +96,17 @@ enum EButtonEvent
 
 
 #define VLONGPRESSCOUNT 200                   // 2 seconds
-byte PBShift;                                 // shifted state of input pin
+byte PBShift;                                 // shifted state of pushbutton input pin
+byte ARMInShift;                              // shifted state of ARM input pin
 byte PBLongCounter;                           // counter for long press
-EButtonEvent GButtonEvent;
+EButtonEvent GButtonEvent;                    // decoded pushbutton event
+EButtonEvent GARMInEvent;                     // decoded ARM input event
 unsigned int GPowerOffTimer;
+unsigned int GARMOffTimer;
+bool GARMOffReady = false;
 
-#define VPOWEROFFDELAY 1000                   // 10 seconds
+#define VPOWEROFFDELAY 1000                   // 10 seconds before shutdown
+#define VARMPOWEROFFDELAY 3000                // 30 seconds before input armed
 
 
 //
@@ -133,6 +139,21 @@ void ReadPushbutton(void)
 
 
 
+//
+// read and debounce "ARM request power off" input
+// called from 10ms tick handler
+//
+void ReadARMInput(void)
+{
+  byte Input = 0;
+  if(digitalRead(VARMCONFIGPIN) == HIGH)
+    Input = 1;
+
+  ARMInShift = ((ARMInShift << 1) | (Input & 1)) & 0b00000111;           // most recent 3 samples
+  if(ARMInShift == 0b00000100)                         // active low (trigger) detected
+    GARMInEvent = ePressed;
+}
+
 
 //
 // PowerManagerTick()
@@ -152,8 +173,21 @@ void PowerManagerTick(void)
 
     case eNormalOperation:                          // 12V power on; wait for shutdown press
       digitalWrite(VPWRONPIN, HIGH);                // take control of 12V power, turning it on
-      digitalWrite(VLEDPIN, HIGH);                   // front panel LED lit
-      if(GButtonEvent == eLongPressed)              // state change when button pressed for 2s
+      if(digitalRead(VARMCONFIGPIN) == LOW)
+      {
+        if (LEDOn)                                    // LED blinks if UPDI is zero
+          digitalWrite(VLEDPIN, HIGH);
+        else
+          digitalWrite(VLEDPIN, LOW);
+      }
+      else
+        digitalWrite(VLEDPIN, HIGH);                // front panel LED lit if UPDI is high
+      if(GARMInEvent == ePressed)                   // if ARM has requested shutdown, do it
+      {
+        GPowerState = eShutdownInitiated;
+        GBlinkRate = 25;                            // double LED gflash rate for ARM triggered shutdown
+      }
+      else if(GButtonEvent == eLongPressed)         // state change when button pressed for 2s
         GPowerState = eShutdownRequest;
       break;
 
@@ -200,6 +234,7 @@ void PowerManagerTick(void)
       break;
   }
   GButtonEvent = eNone;
+  GARMInEvent = eNone;
 }
 
 
@@ -227,9 +262,11 @@ void setup()
   pinMode(VARMSHUTDOWNPIN, INPUT);            // will become an output to make open collector driver
   pinMode(VARMACTIVEPIN, INPUT);
   pinMode(VPBPIN, INPUT_PULLUP);
+  pinMode(VARMCONFIGPIN, INPUT_PULLUP);
   
   CurrentTimer.init();
   CurrentTimer.attachInterruptInterval(TIMER1_INTERVAL_MS, TickHandler);
+  GARMOffTimer = VARMPOWEROFFDELAY;           // delay before pin used
 }
 
 
@@ -252,7 +289,14 @@ void loop()
     }
     else
       Counter--;
+//
+// normal loop code
+//      
+    if(GARMOffTimer != 0)                   // 30s delay before "ARM request power off" input enabled
+      if(--GARMOffTimer == 0)
+        GARMOffReady = true;
     ReadPushbutton();
+    ReadARMInput();
     PowerManagerTick();
   }
 }
