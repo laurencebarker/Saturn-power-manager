@@ -55,6 +55,7 @@ bool GTickTriggered;                        // true if a 16ms tick has been trig
 bool LEDOn;
 int Counter = 0;
 byte GBlinkRate = 50;                       // on/off periods in 10ms units
+byte GPowerDelayCount = 20;                 // initial delay before activating anything
 
 
 //
@@ -73,6 +74,7 @@ byte GBlinkRate = 50;                       // on/off periods in 10ms units
 //
 enum EPowerState
 { 
+  ePowerWaitStart, 
   ePowerOn,
   eNormalOperation, 
   eShutdownRequest,
@@ -164,8 +166,13 @@ void PowerManagerTick(void)
 
   switch(GPowerState)
   {
-    case ePowerOn:                                    // power up into this state
-      if(digitalRead(VPBPIN) == LOW)                  // oly latch power if PB is pressed
+    case ePowerWaitStart:                              // power up into this state
+      if(--GPowerDelayCount == 0)
+        GPowerState = ePowerOn;
+      break;
+
+    case ePowerOn:                                    // monitor pushbutton, power up if detected
+      if(digitalRead(VPBPIN) == LOW)                  // only latch power if PB is pressed
       {
         digitalWrite(VPWRONPIN, HIGH);                // take control of 12V power, turning it on
         digitalWrite(VLEDPIN, HIGH);                  // front panel LED lit
