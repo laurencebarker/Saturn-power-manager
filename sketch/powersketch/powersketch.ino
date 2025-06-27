@@ -164,15 +164,18 @@ void PowerManagerTick(void)
 
   switch(GPowerState)
   {
-    case ePowerOn:                                  // power up into this state
-      digitalWrite(VPWRONPIN, HIGH);                // take control of 12V power, turning it on
-      digitalWrite(VLEDPIN, HIGH);                   // front panel LED lit
-      if(GButtonEvent == eReleased)                 // state change when button released
+    case ePowerOn:                                    // power up into this state
+      if(digitalRead(VPBPIN) == LOW)                  // oly latch power if PB is pressed
+      {
+        digitalWrite(VPWRONPIN, HIGH);                // take control of 12V power, turning it on
+        digitalWrite(VLEDPIN, HIGH);                  // front panel LED lit
+      }
+      if(GButtonEvent == eReleased)                   // state change when button released
         GPowerState = eNormalOperation;
       break;
 
-    case eNormalOperation:                          // 12V power on; wait for shutdown press
-      digitalWrite(VPWRONPIN, HIGH);                // take control of 12V power, turning it on
+    case eNormalOperation:                            // 12V power on; wait for shutdown press
+      digitalWrite(VPWRONPIN, HIGH);                  // take control of 12V power, turning it on
       if(digitalRead(VARMCONFIGPIN) == LOW)
       {
         if (LEDOn)                                    // LED blinks if UPDI is zero
