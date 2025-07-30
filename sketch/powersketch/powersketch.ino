@@ -76,6 +76,7 @@ enum EPowerState
 { 
   ePowerWaitStart, 
   ePowerOn,
+  eBlink,                                     // blink a message
   eNormalOperation, 
   eShutdownRequest,
   eShutdownInitiated,
@@ -109,6 +110,46 @@ bool GARMOffReady = false;
 
 #define VPOWEROFFDELAY 1000                   // 10 seconds before shutdown
 #define VARMPOWEROFFDELAY 3000                // 30 seconds before input armed
+
+#define DOTPD 40                              // edit this to change more speed
+// drived parameters
+#define DASHPD 3*DOTPD
+#define GAPPD DOTPD
+#define SPACEPD DASHPD
+#define OFFPD 100                             // 1s off either side of morse
+
+typedef struct
+{
+  int StepTime;                              // time this event is active for
+  byte PinState;                              // pin state (HIGH or LOW) for this event
+} SMorseElement;
+
+SMorseElement Sequence[] = 
+{
+  {OFFPD, LOW},
+  {DASHPD, HIGH},                             // "G"
+  {GAPPD, LOW},
+  {DASHPD, HIGH},
+  {GAPPD, LOW},
+  {DOTPD, HIGH},
+  {SPACEPD, LOW},
+  {DOTPD, HIGH},                              // "2"
+  {GAPPD, LOW},
+  {DOTPD, HIGH},
+  {GAPPD, LOW},
+  {DASHPD, HIGH},
+  {GAPPD, LOW},
+  {DASHPD, HIGH},
+  {GAPPD, LOW},
+  {DASHPD, HIGH},
+  {OFFPD, LOW},
+  {OFFPD, LOW},
+  {0, LOW}                                    // END
+};
+
+byte GSequenceStep=0;                         // current step in the blink sequence
+int GSequenceCount;                           // current delay count in blink sequence
+
 
 
 //
@@ -166,7 +207,8 @@ void PowerManagerTick(void)
 
   switch(GPowerState)
   {
-    case ePowerWaitStart:                              // power up into this state
+    case ePowerWaitStart:                             // power up into this state
+      GSequenceCount = Sequence[0].StepTime;          // initialise
       if(--GPowerDelayCount == 0)
         GPowerState = ePowerOn;
       break;
@@ -175,10 +217,23 @@ void PowerManagerTick(void)
       if(digitalRead(VPBPIN) == LOW)                  // only latch power if PB is pressed
       {
         digitalWrite(VPWRONPIN, HIGH);                // take control of 12V power, turning it on
-        digitalWrite(VLEDPIN, HIGH);                  // front panel LED lit
       }
       if(GButtonEvent == eReleased)                   // state change when button released
-        GPowerState = eNormalOperation;
+        GPowerState = eBlink;
+      break;
+
+    case eBlink:                                      // blink morse according to a listed sequence
+      if(GSequenceCount != 0)                         // count down if a count active
+        GSequenceCount--;
+      else
+      {
+        GSequenceStep++;                              // else move to next step; time=0 if end of sequence
+        GSequenceCount = Sequence[GSequenceStep].StepTime;
+        if(GSequenceCount != 0)
+          digitalWrite(VLEDPIN, Sequence[GSequenceStep].PinState);
+        else
+          GPowerState = eNormalOperation;
+      }
       break;
 
     case eNormalOperation:                            // 12V power on; wait for shutdown press
